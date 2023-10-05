@@ -1,0 +1,445 @@
+Nay mình sẽ làm một ví vụ về CRUD(create, read, update, delete) trong NextJS 13. Chia sẻ với mọi người cách thiết lập route để định vị được các chức năng trong NextJS 13 này
+Ở đây mình dùng phiên bản NextJS 13 mới nhất
++ app/libs/index.ts : xây dựng các thư viện bạn muốn
++ app/types/index.ts : xây dựng các interface 
++ api/post/route.ts : GET (Lấy danh sách tất cả bài viết), POST(Thêm một bài viết)
++ api/post/[id]/route.ts : 
+    GET : lấy bài viết qua ID 
+    PUT : update bài viết 
+    DELETE: xóa bài viết
++ app/post/page.tsx : Hiện thị danh sách bài viết
++ app/post/create/page.tsx  : Form thêm bài viết 
++ app/post/edit/[id]/page.tsx  : Form chỉnh sửa bài viết từ ID
++ app/post/read/[id]/page.tsx  : Form hiển thị bài viết từ ID
++ app/components/Header.ts : thiết kế giao diện phần header 
++ app/components/Post.ts : hiện thị phần từ dữ liệu của một bài post
++ app/layout.tsx : giao diện bố cục của project 
++ app/page.tsx : giao diện trang chủ
+
+Okay bắt đầu chúng ta xây dựng một projec thôi 
+# Create a Project 
+
++ app/libs/index.ts : Đoạn code bên dưới, dúng ta xử lý request API
+export const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
++ app/types/index.ts : thiết lập các thuộc tính của một Model, bằng cách sử dụng interface trong typescript , cần cấu hình các thuộc tính thuộc một kiểu dữ liệu nào đó
+export  interface UserModel{
+    id:number,
+    name:string,
+}
+export  interface PostModel{
+    id:number,
+    title:string,
+    keyword:string,
+    des:string,
+    slug:string,
+    image:string,
+    publish:number,
+    content:string,
+    created_at:string
+    user:UserModel,
+    deletePost:(id: number)=> void;
+}
+export interface PostAddModel{
+    title:string,
+    content:string
+}
+
++ api/post/route.ts : Chúng ta cần xây dụng một route, để request Api , ở đây ta cần cài đặt 2 phương thức(GET, POST) 
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET() {
+  const res = await fetch(process.env.PATH_URL_BACKEND+'/api/posts', {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  const result = await res.json()
+  return NextResponse.json({ result })
+}
+export async function POST(request: NextRequest) {
+  const body = await request.json()
+  const res = await fetch(process.env.PATH_URL_BACKEND+'/api/posts', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json();
+  return NextResponse.json(data)
+
+}
+
+process.env.PATH_URL_BACKEND : là đường dẫn địa chỉ BackEnd của bạn, các bạn tạo file .env và sử dụng các biến cấu hình cho project nhé
+
++ api/post/[id]/route.ts : Trong route này ta sử dụng các phương thức như (GET, PUT, DELETE), cũng như mình đã nói ở phần bên trên 
+GET : dùng để lấy bài viết theo  ID 
+PUT : cập nhật bài viết từ ID 
+DELETE : xóa bài viết từ ID 
+import { NextRequest, NextResponse } from 'next/server'
+export async function GET(request : NextRequest,{ params }: { params: { id: number } }) {
+  const res = await fetch(process.env.PATH_URL_BACKEND+`/api/posts/${params.id}`, {
+    next: { revalidate: 10 } ,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  const result = await res.json()
+  return NextResponse.json(result)
+}
+export async function PUT(request: NextRequest,{ params }: { params: { id: number } }) {
+  const body = await request.json()
+  const res = await fetch(process.env.PATH_URL_BACKEND+`/api/posts/${params.id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json();
+  return NextResponse.json(data)
+
+}
+export async function DELETE(request: NextRequest,{ params }: { params: { id: number } }) {
+  const res = await fetch(process.env.PATH_URL_BACKEND+`/api/posts/${params.id}`, {
+    next: { revalidate: 10 },
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  const data = await res.json();
+  return NextResponse.json(data)
+
+}
+ 
+Các bạn có thể nhìn vào đoạn code trên mình có sử dụng  next: { revalidate: 10 }, nó dùng để lưu bộ nhớ dữ liệu trong vòng 10 giây, tùy vào ứng dụng của bạn mà cấu hình nhé 
+
++ app/post/page.tsx : Hiển thị danh sách bài viết ra cho người dùng xem 
+"use client";
+import React,{useEffect, useState} from "react";
+import useSWR from "swr";
+import { fetcher } from "../libs";
+import Post from "../components/Post";
+import { PostModel } from "../types";
+import Link from "next/link";
+
+export default function Posts() {
+  const [posts,setPosts] = useState<PostModel[]>([]);
+  const { data, error, isLoading } = useSWR<any>(`/api/posts`, fetcher);
+  useEffect(()=>{
+    if(data && data.result.data)
+    {
+      console.log(data.result.data);
+      setPosts(data.result.data);
+    }
+  },[data,isLoading]);
+  if (error) return <div>Failed to load</div>;
+  if (isLoading) return <div>Loading...</div>;
+  if (!data) return null;
+  let delete_Post : PostModel['deletePost']= async (id:number) => {
+    const res = await fetch(`/api/posts/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    });
+    const content = await res.json();
+    if(content.success>0)
+    {
+       
+      setPosts(posts?.filter((post:PostModel)=>{  return post.id !== id  }));
+    }
+  }
+  return (
+    <div className="w-full max-w-7xl m-auto">
+      <table className="w-full border-collapse border border-slate-400">
+        <caption className="caption-top py-5 font-bold text-green-500 text-2xl">
+          List Posts - Counter :
+          <span className="text-red-500 font-bold">{ posts?.length}</span>
+        </caption>
+    
+        <thead>
+          <tr className="text-center">
+            <th className="border border-slate-300">ID</th>
+            <th className="border border-slate-300">Title</th>
+            <th className="border border-slate-300">Hide</th>
+            <th className="border border-slate-300">Created at</th>
+            <th className="border border-slate-300">Modify</th>
+          </tr>
+        </thead>
+        <tbody>
+           <tr>
+              <td colSpan={5}>
+                 <Link href={`/post/create`} className="bg-green-500 p-2 inline-block text-white">Create</Link>
+              </td>
+           </tr>
+           {
+              posts && posts.map((item : PostModel)=><Post key={item.id} {...item} deletePost = {delete_Post} />)
+           }
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+Có nhiều thư bên trong đoạn code trên mình đã chia sẻ với mọi người bài viết trước như : SWR
+Bạn nào chưa xem thì xem lại tại đây nhé : Create A Example Handling Data Fetching With SWR In NextJS
+https://hoanguyenit.com/create-a-example-handling-data-fetching-with-swr-in-nextjs.html
+Các bạn xem đoạn code này, mình có tạo một function để bắt sự kiện xóa một bài viết 
+let delete_Post : PostModel['deletePost']= async (id:number) => {
+    const res = await fetch(`/api/posts/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    });
+    const content = await res.json();
+    if(content.success>0)
+    {
+       
+      setPosts(posts?.filter((post:PostModel)=>{  return post.id !== id  }));
+    }
+  }
+----------
+//chèn function đó qua component để bắt sự kiện click delete 
+posts && posts.map((item : PostModel)=><Post key={item.id} {...item} deletePost = {delete_Post} />
+
++ app/components/Post.ts : component hiện bài viết và xử lý sự kiện click xóa bài viết
+import React from 'react'
+import { PostModel } from '../types'
+import Link from 'next/link'
+export default function Post(params: PostModel) {
+  return (
+    <tr>
+            <td className='w-10 border border-slate-300 text-center'>{params.id}</td>
+            <td className='border border-slate-300'>{params.title}</td>
+            <td className='border border-slate-300 text-center'>{params.publish>0?'open':'hide'}</td>
+            <td className='border border-slate-300 text-center'>{params.created_at}</td>
+            <td className='w-52 border border-slate-300'>
+              <span onClick={()=>params.deletePost(params.id)} className='bg-red-500 p-2 inline-block text-white text-sm'>Delete</span>
+              <Link href={`/post/edit/${params.id}`} className='bg-yellow-500 p-2 inline-block ml-3 text-white text-sm'>Edit</Link>
+              <Link href={`/post/read/${params.id}`} className='bg-yellow-500 p-2 inline-block ml-3 text-white text-sm'>View</Link>
+            </td>
+    </tr>
+  )
+}
+Bắt sự kiện click xóa bài viết : params.deletePost(params.id)
+
++ app/post/create/page.tsx : Tạo form để nhập thông tin thêm bài viết , đoạn code dười mình có dùng useState để lưu dữ liệu,  nói chung nó giống như bên React. Nên mình sẽ bỏ qua phần giải thích này 
+"use client"
+import React, {useState } from 'react'
+import { useRouter } from 'next/navigation'
+export default function PostCreate() {
+  const router = useRouter()
+  const [title, setTitle] =useState<string>('');
+  const [body, setBody] = useState<string>('');
+  const addPost = async (e: any) => {
+    e.preventDefault()
+    if (title!="" && body!="") {
+      const formData = {
+          title: title,
+          content: body
+      }
+      const add = await fetch('/api/posts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      });
+      const content = await add.json();
+      if(content.success>0)
+      {
+        router.push('/post');
+      }
+      
+    }
+  };
+  return (
+    <form className='w-full' onSubmit={addPost}>
+        <span className='font-bold text-yellow-500 py-2 block underline text-2xl'>Form Add</span>
+        <div className='w-full py-2'>
+             <label htmlFor="" className='text-sm font-bold py-2 block'>Title</label>
+             <input type='text' name='title' className='w-full border-[1px] border-gray-200 p-2 rounded-sm'  onChange={(e:any)=>setTitle(e.target.value)}/>
+        </div>
+        <div className='w-full py-2'>
+             <label htmlFor="" className='text-sm font-bold py-2 block'>Content</label>
+             <textarea name='title' className='w-full border-[1px] border-gray-200 p-2 rounded-sm' onChange={(e:any)=>setBody(e.target.value)} />
+        </div>
+        <div className='w-full py-2'>
+          <button className="w-20 p-2 text-white border-gray-200 border-[1px] rounded-sm bg-green-400">Submit</button>
+        </div>
+    </form>
+  )
+}
+
++ app/post/edit/[id]/page.tsx : Edit bài viết, bằng cách ta lấy ID của bài viết , request đến /api/post/edit/[id]/route.ts để lấy dữ liệu cần chỉnh sửa
+"use client"
+import React, {useState,useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { fetcher } from '@/app/libs'
+import useSWR from 'swr'
+export default function PostEdit({params} :{params:{id:number}}) {
+  const router = useRouter()
+  const {data : post,isLoading, error} = useSWR(`/api/posts/${params.id}`,fetcher)
+  const [title, setTitle] =useState<string>('');
+  const [body, setBody] = useState<string>('');
+  useEffect(()=>{
+     if(post){
+         setTitle(post.result.title)
+         setBody(post.result.content)
+     }
+  },[post, isLoading])
+  const updatePost = async (e: any) => {
+    e.preventDefault()
+    if (title!="" && body!="") {
+      const formData = {
+          title: title,
+          content: body
+      }
+      const res = await fetch(`/api/posts/${params.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      });
+      const content = await res.json();
+      if(content.success>0)
+      {
+        router.push('/post');
+      }
+      
+    }
+  };
+  if(isLoading) return <div><span>Loading...</span></div>
+  if (!post) return null;
+  return (
+    <form className='w-full' onSubmit={updatePost}>
+        <span className='font-bold text-yellow-500 py-2 block underline text-2xl'>Form Add</span>
+        <div className='w-full py-2'>
+             <label htmlFor="" className='text-sm font-bold py-2 block'>Title</label>
+             <input type='text' name='title' className='w-full border-[1px] border-gray-200 p-2 rounded-sm' value={title} onChange={(e:any)=>setTitle(e.target.value)}/>
+        </div>
+        <div className='w-full py-2'>
+             <label htmlFor="" className='text-sm font-bold py-2 block'>Content</label>
+             <textarea name='title' className='w-full border-[1px] border-gray-200 p-2 rounded-sm' value={body} onChange={(e:any)=>setBody(e.target.value)} />
+        </div>
+        <div className='w-full py-2'>
+          <button className="w-20 p-2 text-white border-gray-200 border-[1px] rounded-sm bg-green-400">Submit</button>
+        </div>
+    </form>
+  )
+}
+
++ app/post/read/[id]/page.tsx :Tương tự như của Edit, nhưng ở route này ta chỉ cần hiện thị thông tin cho người dùng xem 
+"use client";
+import React,{useEffect, useState} from "react";
+import useSWR from "swr";
+import { fetcher } from "../libs";
+import Post from "../components/Post";
+import { PostModel } from "../types";
+import Link from "next/link";
+
+export default function Posts() {
+  const [posts,setPosts] = useState<PostModel[]>([]);
+  const { data, error, isLoading } = useSWR<any>(`/api/posts`, fetcher);
+  useEffect(()=>{
+    if(data && data.result.data)
+    {
+      console.log(data.result.data);
+      setPosts(data.result.data);
+    }
+  },[data,isLoading]);
+  if (error) return <div>Failed to load</div>;
+  if (isLoading) return <div>Loading...</div>;
+  if (!data) return null;
+  let delete_Post : PostModel['deletePost']= async (id:number) => {
+    const res = await fetch(`/api/posts/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+    });
+    const content = await res.json();
+    if(content.success>0)
+    {
+       
+      setPosts(posts?.filter((post:PostModel)=>{  return post.id !== id  }));
+    }
+  }
+  return (
+    <div className="w-full max-w-7xl m-auto">
+      <table className="w-full border-collapse border border-slate-400">
+        <caption className="caption-top py-5 font-bold text-green-500 text-2xl">
+          List Posts - Counter :
+          <span className="text-red-500 font-bold">{ posts?.length}</span>
+        </caption>
+    
+        <thead>
+          <tr className="text-center">
+            <th className="border border-slate-300">ID</th>
+            <th className="border border-slate-300">Title</th>
+            <th className="border border-slate-300">Hide</th>
+            <th className="border border-slate-300">Created at</th>
+            <th className="border border-slate-300">Modify</th>
+          </tr>
+        </thead>
+        <tbody>
+           <tr>
+              <td colSpan={5}>
+                 <Link href={`/post/create`} className="bg-green-500 p-2 inline-block text-white">Create</Link>
+              </td>
+           </tr>
+           {
+              posts && posts.map((item : PostModel)=><Post key={item.id} {...item} deletePost = {delete_Post} />)
+           }
+        </tbody>
+      </table>
+    </div>
+  );
+}
++ app/page.tsx : import component /app/post/page.tsx , để hiện thị màn hình chính của trang chủ 
+import Posts from './post/page'
+export default function Home() {
+  return (
+        <Posts />
+  )
+}
+
++ app/layout.tsx : bố cục ứng dụng 
+import './globals.css'
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import Header from './components/Header'
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const metadata: Metadata = {
+  title: 'Create Next App',
+  description: 'Generated by create next app',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body className={inter.className}>
+        <Header />
+        <div className='w-full max-w-7xl mt-4 m-auto'>
+            {children}
+        </div>
+      </body>
+    </html>
+  )
+}
+
+Okay, bài viết cũng dài rồi, các bạn chịu khó xem nhé. Hẹn mọi người bài viết sau!
+
+
+
